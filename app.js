@@ -12,6 +12,7 @@ const btnReset      = document.getElementById('btn-reset');
 const btnSave       = document.getElementById('btn-save');
 const sessionNameEl = document.getElementById('session-name');
 const sessionList   = document.getElementById('session-list');
+const statusMsg     = document.getElementById('status-msg');
 
 // ── Counter logic ─────────────────────────────────────────────────────────────
 
@@ -62,9 +63,10 @@ async function renderSessions() {
 
   if (error) {
     sessionList.innerHTML = '<li class="empty-note">Could not load sessions.</li>';
-    console.error(error);
+    statusMsg.textContent = 'Error: ' + error.message;
     return;
   }
+  statusMsg.textContent = '';
 
   if (!data || data.length === 0) {
     sessionList.innerHTML = '<li class="empty-note">No saved sessions yet.</li>';
@@ -91,7 +93,7 @@ async function saveSession() {
 
   const { error } = await sb.from('sessions').insert({ name, count, date: new Date().toLocaleDateString() });
 
-  if (error) { console.error(error); return; }
+  if (error) { statusMsg.textContent = 'Save error: ' + error.message; return; }
 
   sessionNameEl.value = '';
   await renderSessions();

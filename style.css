@@ -213,6 +213,14 @@ h1 {
 }
 
 
+.status-msg {
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+  color: #c62828;
+  min-height: 1.2em;
+  text-align: center;
+}
+
 .hint {
   margin-top: 1.25rem;
   font-size: 0.8rem;
