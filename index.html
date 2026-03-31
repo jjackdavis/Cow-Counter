@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cow Counter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <h1>🐄 Cow Counter</h1>
+
+    <div class="counter-display">
+      <span id="count">0</span>
+      <span class="label">cows counted</span>
+    </div>
+
+    <div class="buttons">
+      <button id="btn-add" class="btn btn-add" title="Add a cow (Space)">
+        +1 Cow
+      </button>
+      <button id="btn-undo" class="btn btn-undo" title="Undo last (Backspace)" disabled>
+        Undo
+      </button>
+      <button id="btn-reset" class="btn btn-reset" title="Reset count">
+        Reset
+      </button>
+    </div>
+
+    <div class="sessions">
+      <h2>Sessions</h2>
+      <div class="session-controls">
+        <input id="session-name" type="text" placeholder="Session name (optional)" maxlength="40">
+        <button id="btn-save" class="btn btn-save">Save Session</button>
+      </div>
+      <ul id="session-list"></ul>
+    </div>
+
+    <p class="hint">Tip: Press <kbd>Space</kbd> to count, <kbd>Backspace</kbd> to undo</p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
