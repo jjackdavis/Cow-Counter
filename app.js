@@ -1,35 +1,17 @@
 const SUPABASE_URL = 'https://swhdbnzxwvktpybutupg.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_HPkvMwpqsPfvKB_9tbePYA_Rv1_W_Pe';
-const DEVICE_KEY = 'cow-counter-device-id';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ── Device ID (sync code) ────────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────────────────────────
 
-function getDeviceId() {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
-
-let deviceId = getDeviceId();
-
-// ── DOM refs ─────────────────────────────────────────────────────────────────
-
-const countEl         = document.getElementById('count');
-const btnAdd          = document.getElementById('btn-add');
-const btnUndo         = document.getElementById('btn-undo');
-const btnReset        = document.getElementById('btn-reset');
-const btnSave         = document.getElementById('btn-save');
-const sessionNameEl   = document.getElementById('session-name');
-const sessionList     = document.getElementById('session-list');
-const currentCodeEl   = document.getElementById('current-code');
-const syncCodeInput   = document.getElementById('sync-code-input');
-const btnApplyCode    = document.getElementById('btn-apply-code');
-const btnCopyCode     = document.getElementById('btn-copy-code');
+const countEl       = document.getElementById('count');
+const btnAdd        = document.getElementById('btn-add');
+const btnUndo       = document.getElementById('btn-undo');
+const btnReset      = document.getElementById('btn-reset');
+const btnSave       = document.getElementById('btn-save');
+const sessionNameEl = document.getElementById('session-name');
+const sessionList   = document.getElementById('session-list');
 
 // ── Counter logic ─────────────────────────────────────────────────────────────
 
@@ -66,7 +48,7 @@ function bumpAnimation() {
   countEl.addEventListener('transitionend', () => countEl.classList.remove('bump'), { once: true });
 }
 
-// ── Supabase sessions ─────────────────────────────────────────────────────────
+// ── Sessions ──────────────────────────────────────────────────────────────────
 
 async function renderSessions() {
   sessionList.innerHTML = '<li class="empty-note">Loading…</li>';
@@ -74,7 +56,6 @@ async function renderSessions() {
   const { data, error } = await sb
     .from('sessions')
     .select('*')
-    .eq('device_id', deviceId)
     .order('created_at', { ascending: false });
 
   sessionList.innerHTML = '';
@@ -108,12 +89,7 @@ async function renderSessions() {
 async function saveSession() {
   const name = sessionNameEl.value.trim() || `Session ${new Date().toLocaleTimeString()}`;
 
-  const { error } = await sb.from('sessions').insert({
-    device_id: deviceId,
-    name,
-    count,
-    date: new Date().toLocaleDateString(),
-  });
+  const { error } = await sb.from('sessions').insert({ name, count, date: new Date().toLocaleDateString() });
 
   if (error) { console.error(error); return; }
 
@@ -122,12 +98,7 @@ async function saveSession() {
 }
 
 async function deleteSession(id) {
-  const { error } = await sb
-    .from('sessions')
-    .delete()
-    .eq('id', id)
-    .eq('device_id', deviceId);
-
+  const { error } = await sb.from('sessions').delete().eq('id', id);
   if (error) { console.error(error); return; }
   await renderSessions();
 }
@@ -135,36 +106,6 @@ async function deleteSession(id) {
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
-// ── Sync code UI ──────────────────────────────────────────────────────────────
-
-function refreshCodeDisplay() {
-  currentCodeEl.textContent = deviceId;
-  syncCodeInput.value = '';
-}
-
-function applyCode() {
-  const val = syncCodeInput.value.trim();
-  // Accept a full UUID or any non-empty string
-  if (!val) return;
-  deviceId = val;
-  localStorage.setItem(DEVICE_KEY, deviceId);
-  refreshCodeDisplay();
-  renderSessions();
-}
-
-btnCopyCode.addEventListener('click', () => {
-  navigator.clipboard.writeText(deviceId).then(() => {
-    btnCopyCode.textContent = 'Copied!';
-    setTimeout(() => { btnCopyCode.textContent = 'Copy'; }, 1500);
-  });
-});
-
-btnApplyCode.addEventListener('click', applyCode);
-
-syncCodeInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') applyCode();
-});
 
 // ── Event listeners ───────────────────────────────────────────────────────────
 
@@ -192,5 +133,4 @@ document.addEventListener('keydown', (e) => {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 setCount(0);
-refreshCodeDisplay();
 renderSessions();
