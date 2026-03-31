@@ -36,9 +36,24 @@
       <ul id="session-list"></ul>
     </div>
 
+    <details class="sync-panel">
+      <summary>Sync across devices</summary>
+      <div class="sync-body">
+        <p class="sync-desc">Enter the same sync code on another device to share your sessions.</p>
+        <div class="sync-row">
+          <input id="sync-code-input" type="text" placeholder="Your sync code" maxlength="36" spellcheck="false">
+          <button id="btn-apply-code" class="btn btn-apply">Apply</button>
+        </div>
+        <p class="sync-current">Current code: <code id="current-code"></code>
+          <button id="btn-copy-code" class="btn-inline">Copy</button>
+        </p>
+      </div>
+    </details>
+
     <p class="hint">Tip: Press <kbd>Space</kbd> to count, <kbd>Backspace</kbd> to undo</p>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

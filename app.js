@@ -1,67 +1,40 @@
-const countEl = document.getElementById('count');
-const btnAdd = document.getElementById('btn-add');
-const btnUndo = document.getElementById('btn-undo');
-const btnReset = document.getElementById('btn-reset');
-const btnSave = document.getElementById('btn-save');
-const sessionNameEl = document.getElementById('session-name');
-const sessionList = document.getElementById('session-list');
+const SUPABASE_URL = 'https://swhdbnzxwvktpybutupg.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HPkvMwpqsPfvKB_9tbePYA_Rv1_W_Pe';
+const DEVICE_KEY = 'cow-counter-device-id';
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Device ID (sync code) ────────────────────────────────────────────────────
+
+function getDeviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
+
+let deviceId = getDeviceId();
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+
+const countEl         = document.getElementById('count');
+const btnAdd          = document.getElementById('btn-add');
+const btnUndo         = document.getElementById('btn-undo');
+const btnReset        = document.getElementById('btn-reset');
+const btnSave         = document.getElementById('btn-save');
+const sessionNameEl   = document.getElementById('session-name');
+const sessionList     = document.getElementById('session-list');
+const currentCodeEl   = document.getElementById('current-code');
+const syncCodeInput   = document.getElementById('sync-code-input');
+const btnApplyCode    = document.getElementById('btn-apply-code');
+const btnCopyCode     = document.getElementById('btn-copy-code');
+
+// ── Counter logic ─────────────────────────────────────────────────────────────
 
 let count = 0;
 let history = [];
-
-// ── IndexedDB setup ──────────────────────────────────────────────────────────
-
-const DB_NAME = 'CowCounterDB';
-const DB_VERSION = 1;
-const STORE = 'sessions';
-
-let db = null;
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = (e) => {
-      const database = e.target.result;
-      if (!database.objectStoreNames.contains(STORE)) {
-        const store = database.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
-        store.createIndex('createdAt', 'createdAt', { unique: false });
-      }
-    };
-
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-function dbGetAll() {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const req = tx.objectStore(STORE).index('createdAt').getAll();
-    req.onsuccess = (e) => resolve(e.target.result.reverse()); // newest first
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-function dbAdd(session) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const req = tx.objectStore(STORE).add(session);
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-function dbDelete(id) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    const req = tx.objectStore(STORE).delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = (e) => reject(e.target.error);
-  });
-}
-
-// ── Counter logic ────────────────────────────────────────────────────────────
 
 function setCount(n) {
   count = n;
@@ -93,18 +66,31 @@ function bumpAnimation() {
   countEl.addEventListener('transitionend', () => countEl.classList.remove('bump'), { once: true });
 }
 
-// ── Sessions ─────────────────────────────────────────────────────────────────
+// ── Supabase sessions ─────────────────────────────────────────────────────────
 
 async function renderSessions() {
-  const sessions = await dbGetAll();
+  sessionList.innerHTML = '<li class="empty-note">Loading…</li>';
+
+  const { data, error } = await sb
+    .from('sessions')
+    .select('*')
+    .eq('device_id', deviceId)
+    .order('created_at', { ascending: false });
+
   sessionList.innerHTML = '';
 
-  if (sessions.length === 0) {
+  if (error) {
+    sessionList.innerHTML = '<li class="empty-note">Could not load sessions.</li>';
+    console.error(error);
+    return;
+  }
+
+  if (!data || data.length === 0) {
     sessionList.innerHTML = '<li class="empty-note">No saved sessions yet.</li>';
     return;
   }
 
-  sessions.forEach((s) => {
+  data.forEach((s) => {
     const li = document.createElement('li');
     li.innerHTML = `
       <div class="session-info">
@@ -112,8 +98,8 @@ async function renderSessions() {
         <span class="meta">${s.count} cow${s.count !== 1 ? 's' : ''} &middot; ${s.date}</span>
       </div>
       <div class="session-actions">
-        <button class="btn-load" data-id="${s.id}">Load</button>
-        <button class="btn-delete" data-id="${s.id}" data-count="${s.count}" data-name="${escapeHtml(s.name)}">Delete</button>
+        <button class="btn-load" data-count="${s.count}">Load</button>
+        <button class="btn-delete" data-id="${s.id}">Delete</button>
       </div>`;
     sessionList.appendChild(li);
   });
@@ -121,32 +107,64 @@ async function renderSessions() {
 
 async function saveSession() {
   const name = sessionNameEl.value.trim() || `Session ${new Date().toLocaleTimeString()}`;
-  await dbAdd({
+
+  const { error } = await sb.from('sessions').insert({
+    device_id: deviceId,
     name,
     count,
     date: new Date().toLocaleDateString(),
-    createdAt: Date.now(),
   });
+
+  if (error) { console.error(error); return; }
+
   sessionNameEl.value = '';
   await renderSessions();
 }
 
-async function loadSession(id) {
-  const sessions = await dbGetAll();
-  const s = sessions.find((x) => x.id === id);
-  if (!s) return;
-  history = [];
-  setCount(s.count);
-}
-
 async function deleteSession(id) {
-  await dbDelete(id);
+  const { error } = await sb
+    .from('sessions')
+    .delete()
+    .eq('id', id)
+    .eq('device_id', deviceId);
+
+  if (error) { console.error(error); return; }
   await renderSessions();
 }
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ── Sync code UI ──────────────────────────────────────────────────────────────
+
+function refreshCodeDisplay() {
+  currentCodeEl.textContent = deviceId;
+  syncCodeInput.value = '';
+}
+
+function applyCode() {
+  const val = syncCodeInput.value.trim();
+  // Accept a full UUID or any non-empty string
+  if (!val) return;
+  deviceId = val;
+  localStorage.setItem(DEVICE_KEY, deviceId);
+  refreshCodeDisplay();
+  renderSessions();
+}
+
+btnCopyCode.addEventListener('click', () => {
+  navigator.clipboard.writeText(deviceId).then(() => {
+    btnCopyCode.textContent = 'Copied!';
+    setTimeout(() => { btnCopyCode.textContent = 'Copy'; }, 1500);
+  });
+});
+
+btnApplyCode.addEventListener('click', applyCode);
+
+syncCodeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyCode();
+});
 
 // ── Event listeners ───────────────────────────────────────────────────────────
 
@@ -156,29 +174,23 @@ btnReset.addEventListener('click', reset);
 btnSave.addEventListener('click', saveSession);
 
 sessionList.addEventListener('click', (e) => {
-  const id = parseInt(e.target.dataset.id, 10);
-  if (isNaN(id)) return;
-  if (e.target.classList.contains('btn-load')) loadSession(id);
-  if (e.target.classList.contains('btn-delete')) deleteSession(id);
+  if (e.target.classList.contains('btn-load')) {
+    history = [];
+    setCount(parseInt(e.target.dataset.count, 10));
+  }
+  if (e.target.classList.contains('btn-delete')) {
+    deleteSession(parseInt(e.target.dataset.id, 10));
+  }
 });
 
 document.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-  if (e.code === 'Space') { e.preventDefault(); addCow(); }
+  if (e.code === 'Space')     { e.preventDefault(); addCow(); }
   if (e.code === 'Backspace') { e.preventDefault(); undo(); }
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-openDB()
-  .then((database) => {
-    db = database;
-    setCount(0);
-    renderSessions();
-  })
-  .catch((err) => {
-    console.error('IndexedDB failed to open:', err);
-    // Fallback message in session list
-    sessionList.innerHTML = '<li class="empty-note">Database unavailable.</li>';
-    setCount(0);
-  });
+setCount(0);
+refreshCodeDisplay();
+renderSessions();
