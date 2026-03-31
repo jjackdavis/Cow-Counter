@@ -6,10 +6,62 @@ const btnSave = document.getElementById('btn-save');
 const sessionNameEl = document.getElementById('session-name');
 const sessionList = document.getElementById('session-list');
 
-const STORAGE_KEY = 'cow-counter-sessions';
-
 let count = 0;
-let history = []; // stack of previous counts for undo
+let history = [];
+
+// ── IndexedDB setup ──────────────────────────────────────────────────────────
+
+const DB_NAME = 'CowCounterDB';
+const DB_VERSION = 1;
+const STORE = 'sessions';
+
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    req.onupgradeneeded = (e) => {
+      const database = e.target.result;
+      if (!database.objectStoreNames.contains(STORE)) {
+        const store = database.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+    };
+
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function dbGetAll() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).index('createdAt').getAll();
+    req.onsuccess = (e) => resolve(e.target.result.reverse()); // newest first
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function dbAdd(session) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).add(session);
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function dbDelete(id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// ── Counter logic ────────────────────────────────────────────────────────────
 
 function setCount(n) {
   count = n;
@@ -36,28 +88,15 @@ function reset() {
 
 function bumpAnimation() {
   countEl.classList.remove('bump');
-  // Force reflow so re-adding the class triggers animation
   void countEl.offsetWidth;
   countEl.classList.add('bump');
   countEl.addEventListener('transitionend', () => countEl.classList.remove('bump'), { once: true });
 }
 
-// Sessions
+// ── Sessions ─────────────────────────────────────────────────────────────────
 
-function loadSessions() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSessions(sessions) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-}
-
-function renderSessions() {
-  const sessions = loadSessions();
+async function renderSessions() {
+  const sessions = await dbGetAll();
   sessionList.innerHTML = '';
 
   if (sessions.length === 0) {
@@ -65,7 +104,7 @@ function renderSessions() {
     return;
   }
 
-  sessions.forEach((s, i) => {
+  sessions.forEach((s) => {
     const li = document.createElement('li');
     li.innerHTML = `
       <div class="session-info">
@@ -73,46 +112,43 @@ function renderSessions() {
         <span class="meta">${s.count} cow${s.count !== 1 ? 's' : ''} &middot; ${s.date}</span>
       </div>
       <div class="session-actions">
-        <button class="btn-load" data-index="${i}">Load</button>
-        <button class="btn-delete" data-index="${i}">Delete</button>
+        <button class="btn-load" data-id="${s.id}">Load</button>
+        <button class="btn-delete" data-id="${s.id}" data-count="${s.count}" data-name="${escapeHtml(s.name)}">Delete</button>
       </div>`;
     sessionList.appendChild(li);
   });
 }
 
-function saveSession() {
+async function saveSession() {
   const name = sessionNameEl.value.trim() || `Session ${new Date().toLocaleTimeString()}`;
-  const sessions = loadSessions();
-  sessions.unshift({
+  await dbAdd({
     name,
     count,
     date: new Date().toLocaleDateString(),
+    createdAt: Date.now(),
   });
-  saveSessions(sessions);
   sessionNameEl.value = '';
-  renderSessions();
+  await renderSessions();
 }
 
-function loadSession(index) {
-  const sessions = loadSessions();
-  const s = sessions[index];
+async function loadSession(id) {
+  const sessions = await dbGetAll();
+  const s = sessions.find((x) => x.id === id);
   if (!s) return;
   history = [];
   setCount(s.count);
 }
 
-function deleteSession(index) {
-  const sessions = loadSessions();
-  sessions.splice(index, 1);
-  saveSessions(sessions);
-  renderSessions();
+async function deleteSession(id) {
+  await dbDelete(id);
+  await renderSessions();
 }
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Event listeners
+// ── Event listeners ───────────────────────────────────────────────────────────
 
 btnAdd.addEventListener('click', addCow);
 btnUndo.addEventListener('click', undo);
@@ -120,10 +156,10 @@ btnReset.addEventListener('click', reset);
 btnSave.addEventListener('click', saveSession);
 
 sessionList.addEventListener('click', (e) => {
-  const idx = parseInt(e.target.dataset.index, 10);
-  if (isNaN(idx)) return;
-  if (e.target.classList.contains('btn-load')) loadSession(idx);
-  if (e.target.classList.contains('btn-delete')) deleteSession(idx);
+  const id = parseInt(e.target.dataset.id, 10);
+  if (isNaN(id)) return;
+  if (e.target.classList.contains('btn-load')) loadSession(id);
+  if (e.target.classList.contains('btn-delete')) deleteSession(id);
 });
 
 document.addEventListener('keydown', (e) => {
@@ -132,6 +168,17 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Backspace') { e.preventDefault(); undo(); }
 });
 
-// Init
-setCount(0);
-renderSessions();
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+openDB()
+  .then((database) => {
+    db = database;
+    setCount(0);
+    renderSessions();
+  })
+  .catch((err) => {
+    console.error('IndexedDB failed to open:', err);
+    // Fallback message in session list
+    sessionList.innerHTML = '<li class="empty-note">Database unavailable.</li>';
+    setCount(0);
+  });
